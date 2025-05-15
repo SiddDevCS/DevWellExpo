@@ -2,6 +2,7 @@ import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+    Alert,
     Animated,
     Dimensions,
     FlatList,
@@ -326,6 +327,19 @@ const MainOnboardingScreen = () => {
   const scrollX = useRef(new Animated.Value(0)).current;
   const slidesRef = useRef(null);
   
+  // Log initial state
+  useEffect(() => {
+    console.log(`ONBOARDING: Screen mounted - User: ${currentUser ? 'signed in' : 'not signed in'}`);
+    return () => {
+      console.log('ONBOARDING: Screen unmounted');
+    };
+  }, []);
+  
+  // Log when auth state changes
+  useEffect(() => {
+    console.log(`ONBOARDING: Auth state updated - User: ${currentUser ? 'signed in' : 'not signed in'}`);
+  }, [currentUser]);
+  
   // Define all steps of the onboarding process in one array
   const TOTAL_STEPS = 8;
   
@@ -382,9 +396,12 @@ const MainOnboardingScreen = () => {
   // Handle next step
   const handleNextStep = useCallback(() => {
     if (currentStep >= TOTAL_STEPS - 1) {
+      console.log('ONBOARDING: Reached final step, no more advancement');
       // We've reached the end of onboarding
       return;
     }
+    
+    console.log(`ONBOARDING: Moving from step ${currentStep} to ${currentStep + 1}`);
     
     // Animate out current content
     Animated.parallel([
@@ -407,6 +424,7 @@ const MainOnboardingScreen = () => {
       
       // If we're transitioning to intro slides, update the FlatList
       if (currentStep < introSlides.length - 1 && currentStep + 1 < introSlides.length) {
+        console.log(`ONBOARDING: Scrolling to intro slide ${currentStep + 1}`);
         slidesRef.current?.scrollToIndex({ 
           index: currentStep + 1, 
           animated: false 
@@ -433,26 +451,75 @@ const MainOnboardingScreen = () => {
   }, [currentStep, fadeAnim, slideAnim]);
   
   const handleSkip = useCallback(() => {
+    console.log('ONBOARDING: User chose to skip onboarding');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    navigation.navigate('Login');
-  }, [navigation]);
+    // In the Auth Stack, we can directly navigate to Login
+    if (!currentUser) {
+      console.log('ONBOARDING: Not signed in, navigating to Login screen');
+      try {
+        navigation.navigate('Login');
+      } catch (err) {
+        console.error('ONBOARDING ERROR: Navigation error during skip:', err);
+        // Try using global navigation as fallback
+        console.log('ONBOARDING: Trying global navigation fallback');
+        global.navigate && global.navigate('Login');
+      }
+    } else {
+      // For logged in users, try to mark onboarding as complete
+      console.log(`ONBOARDING: Signed in user (${currentUser.uid}) is skipping, marking onboarding as complete`);
+      completeOnboarding(currentUser.uid, userData)
+        .then(() => console.log('ONBOARDING: Successfully completed onboarding'))
+        .catch(err => console.error('ONBOARDING ERROR: Error completing onboarding:', err));
+    }
+  }, [navigation, currentUser, userData]);
   
   const handleRegisterPrompt = () => {
+    console.log('ONBOARDING: User chose to register');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    navigation.navigate('SignUp', { onboardingData: userData });
+    // In the Auth Stack, we can directly navigate to SignUp
+    try {
+      console.log('ONBOARDING: Navigating to SignUp with onboarding data');
+      navigation.navigate('SignUp', { onboardingData: userData });
+    } catch (err) {
+      console.error('ONBOARDING ERROR: Navigation error during register:', err);
+      // Try using global navigation as fallback
+      console.log('ONBOARDING: Trying global navigation fallback');
+      global.navigate && global.navigate('SignUp', { onboardingData: userData });
+    }
   };
   
   const handleOnboardingComplete = async () => {
     try {
+      console.log('ONBOARDING: User completed onboarding flow');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       if (currentUser) {
+        // For logged in users, mark onboarding as complete
+        console.log(`ONBOARDING: Marking onboarding as complete for user: ${currentUser.uid}`);
         await completeOnboarding(currentUser.uid, userData);
-        navigation.navigate('Main');
+        console.log('ONBOARDING: Onboarding marked as complete for user');
+        
+        // The AuthProvider's state change will trigger navigation to Main
+        return;
       } else {
-        navigation.navigate('Login');
+        // For non-logged in users, go to login
+        console.log('ONBOARDING: No signed-in user, navigating to Login screen');
+        try {
+          navigation.navigate('Login');
+        } catch (err) {
+          console.error('ONBOARDING ERROR: Navigation error during login:', err);
+          console.log('ONBOARDING: Trying global navigation fallback');
+          global.navigate && global.navigate('Login');
+        }
       }
     } catch (error) {
-      console.error('Error completing onboarding:', error);
+      console.error('ONBOARDING ERROR: Error completing onboarding:', error);
+      console.log(`ONBOARDING: Error code: ${error.code}, message: ${error.message}`);
+      Alert.alert(
+        'Error',
+        'There was a problem completing the onboarding process. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
   };
   
@@ -644,7 +711,7 @@ const MainOnboardingScreen = () => {
               
               <Button 
                 title="I already have an account" 
-                onPress={handleRegisterPrompt}
+                onPress={() => navigation.navigate('Login')}
                 style={styles.loginButton}
                 variant="outlined"
               />

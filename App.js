@@ -1,54 +1,130 @@
+import NetInfo from '@react-native-community/netinfo';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Alert, LogBox, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { auth, db } from './src/config/firebase';
 import { ActivityProvider } from './src/contexts/ActivityContext';
-import { AuthProvider } from './src/contexts/AuthContext';
+import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import MainOnboardingScreen from './src/screens/OnboardingScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
 
+// Ignore specific Firebase warnings
+LogBox.ignoreLogs([
+  'AsyncStorage has been extracted from react-native core', // Common React Native warning
+  '@firebase/firestore', // Ignore Firestore-specific warnings
+  'Setting a timer for a long period of time', // Common Firebase timer warning
+  'The action \'NAVIGATE\' with payload' // Navigation warnings during development
+]);
+
 const Stack = createNativeStackNavigator();
 
-// Main App component
-export default function App() {
-  const [isReady, setIsReady] = useState(false);
-  const [user, setUser] = useState(null);
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
-
-  // Set up auth state listener
+// Network status component to handle app-wide connectivity
+const NetworkStatusMonitor = () => {
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
+    console.log('NETWORK: Setting up network status monitor');
+    
+    // Set up network connectivity listener
+    const unsubscribe = NetInfo.addEventListener(state => {
+      console.log(`NETWORK: Connection status changed - Connected: ${state.isConnected ? 'Yes' : 'No'}, Type: ${state.type}`);
       
-      if (currentUser) {
-        // Check if user has completed onboarding
-        try {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists()) {
-            setHasCompletedOnboarding(userDoc.data().onboardingCompleted || false);
-          }
-        } catch (err) {
-          console.error('Error checking onboarding status:', err);
-          setHasCompletedOnboarding(false);
-        }
+      // Update global offline state tracker
+      global._networkOffline = !state.isConnected;
+      
+      // Alert user when they go offline (only once)
+      if (!state.isConnected && !global._hasShownNetworkOfflineAlert) {
+        console.log('NETWORK: Device is offline. Showing alert.');
+        global._hasShownNetworkOfflineAlert = true;
+        Alert.alert(
+          'You\'re Offline',
+          'Some features may be limited while you\'re offline. Changes will sync when you reconnect.',
+          [{ text: 'OK' }]
+        );
       }
       
-      setIsReady(true);
+      // Alert user when they come back online (only once per session)
+      if (state.isConnected && global._hasShownNetworkOfflineAlert && !global._hasShownNetworkOnlineAlert) {
+        console.log('NETWORK: Device is back online. Showing alert.');
+        global._hasShownNetworkOnlineAlert = true;
+        Alert.alert(
+          'You\'re Back Online',
+          'Your data will now sync with the cloud.',
+          [{ text: 'OK' }]
+        );
+      }
     });
-
-    return unsubscribe;
+    
+    return () => {
+      console.log('NETWORK: Cleaning up network status monitor');
+      unsubscribe();
+    };
   }, []);
+  
+  return null; // This component doesn't render anything
+};
 
+// Global navigation reference
+let globalNavigationRef = null;
+
+// Auth Navigator - screens available when NOT logged in
+const AuthStack = () => {
+  console.log('NAVIGATION: Rendering AuthStack (not logged in)');
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="SignUp" component={SignUpScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="Onboarding" component={MainOnboardingScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// Main Navigator - screens available when logged in and has completed onboarding
+const MainStack = () => {
+  console.log('NAVIGATION: Rendering MainStack (logged in, onboarding complete)');
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Main" component={AppNavigator} />
+    </Stack.Navigator>
+  );
+};
+
+// Onboarding Navigator - screen for a logged in user who hasn't completed onboarding
+const OnboardingStack = () => {
+  console.log('NAVIGATION: Rendering OnboardingStack (logged in, onboarding incomplete)');
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="OnboardingFlow" component={MainOnboardingScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// Navigation component that uses the auth context
+const AppNavigation = () => {
+  const { currentUser, onboardingCompleted, loading } = useAuth();
+  const navigationRef = useRef();
+  
+  // Always call hooks in the same order
+  useEffect(() => {
+    // Store navigation reference globally
+    if (navigationRef.current) {
+      console.log('NAVIGATION: Global navigation reference set');
+      globalNavigationRef = navigationRef.current;
+    }
+  }, [navigationRef.current]);
+  
+  // Log auth state changes
+  useEffect(() => {
+    console.log(`NAVIGATION: Auth state updated - User: ${currentUser ? 'signed in' : 'signed out'}, Onboarding: ${onboardingCompleted}, Loading: ${loading}`);
+  }, [currentUser, onboardingCompleted, loading]);
+  
   // Loading screen
-  if (!isReady) {
+  if (loading) {
+    console.log('NAVIGATION: Showing loading screen');
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' }}>
         <Text style={{ color: '#FFFFFF', fontSize: 24 }}>DevWell</Text>
@@ -56,35 +132,67 @@ export default function App() {
       </SafeAreaView>
     );
   }
+  
+  console.log(`NAVIGATION: Determining navigation stack - User: ${currentUser ? 'signed in' : 'signed out'}, Onboarding: ${onboardingCompleted}`);
+  
+  return (
+    <NavigationContainer 
+      ref={navigationRef}
+      onStateChange={() => {
+        console.log('NAVIGATION: Navigation state changed');
+        const currentRoute = navigationRef.current?.getCurrentRoute();
+        if (currentRoute) {
+          console.log(`NAVIGATION: Current screen: ${currentRoute.name}`);
+        }
+      }}
+    >
+      <StatusBar style="light" />
+      <NetworkStatusMonitor />
+      {currentUser ? (
+        // User is signed in
+        onboardingCompleted ? (
+          // User has completed onboarding
+          <MainStack />
+        ) : (
+          // User needs to complete onboarding
+          <OnboardingStack />
+        )
+      ) : (
+        // No user is signed in
+        <AuthStack />
+      )}
+    </NavigationContainer>
+  );
+};
 
+// Expose navigation function for global use
+global.navigate = (name, params) => {
+  if (globalNavigationRef && globalNavigationRef.isReady()) {
+    console.log(`NAVIGATION: Global navigation - Navigating to ${name}${params ? ' with params' : ''}`);
+    globalNavigationRef.navigate(name, params);
+    return true;
+  }
+  console.log(`NAVIGATION: Global navigation - Failed to navigate to ${name} (navigator not ready)`);
+  return false;
+};
+
+// Main App component
+export default function App() {
+  console.log('APP: Initializing DevWell application');
+  
+  // Initialize global state trackers
+  global._hasShownNetworkOfflineAlert = false;
+  global._hasShownNetworkOnlineAlert = false;
+  global._hasShownOfflineMessage = false;
+  global._hasShownFirebaseNetworkError = false;
+  global._networkOffline = false;
+  
   return (
     <SafeAreaProvider>
       <View style={{ flex: 1 }}>
         <AuthProvider>
           <ActivityProvider>
-            <NavigationContainer>
-              <StatusBar style="light" />
-              <Stack.Navigator screenOptions={{ headerShown: false }}>
-                {user ? (
-                  // User is signed in
-                  hasCompletedOnboarding ? (
-                    // User has completed onboarding
-                    <Stack.Screen name="Main" component={AppNavigator} />
-                  ) : (
-                    // User needs to complete onboarding
-                    <Stack.Screen name="Onboarding" component={MainOnboardingScreen} />
-                  )
-                ) : (
-                  // No user is signed in
-                  <>
-                    <Stack.Screen name="Login" component={LoginScreen} />
-                    <Stack.Screen name="SignUp" component={SignUpScreen} />
-                    <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-                    <Stack.Screen name="Onboarding" component={MainOnboardingScreen} />
-                  </>
-                )}
-              </Stack.Navigator>
-            </NavigationContainer>
+            <AppNavigation />
           </ActivityProvider>
         </AuthProvider>
       </View>

@@ -2,6 +2,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
 import {
+    Alert,
     Animated,
     KeyboardAvoidingView,
     Platform,
@@ -25,7 +26,7 @@ const SignUpScreen = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const { signup } = useAuth();
+  const { signup, completeOnboarding } = useAuth();
   const navigation = useNavigation();
   const route = useRoute();
   
@@ -75,12 +76,29 @@ const SignUpScreen = () => {
       setLoading(true);
       
       // Create user account
-      const result = await signup(email, password, name);
+      const user = await signup(email, password, name);
       
       // If we have onboarding data, save it to the user profile
-      if (onboardingData && result.user) {
-        // The completeOnboarding function would be called here with the onboarding data
-        // This is handled in the AuthContext
+      if (onboardingData && user) {
+        try {
+          await completeOnboarding(user.uid, onboardingData);
+        } catch (err) {
+          console.error('Error saving onboarding data:', err);
+          // We'll continue even if this fails - the auth state listener
+          // will redirect to onboarding if needed
+          
+          // If we're offline, still show a success message
+          if (err.code === 'unavailable' || 
+              err.code === 'failed-precondition' || 
+              err.message.includes('offline') || 
+              err.message.includes('network')) {
+            Alert.alert(
+              'Account Created',
+              'Your account was created, but we had trouble saving your preferences. They will be saved when you reconnect.',
+              [{ text: 'OK' }]
+            );
+          }
+        }
       }
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -89,7 +107,15 @@ const SignUpScreen = () => {
     } catch (err) {
       console.error('Signup error:', err);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError('Failed to create an account. ' + (err.message || ''));
+      
+      // Improve error message for offline mode
+      if (err.code === 'auth/network-request-failed' || 
+          err.message.includes('network') || 
+          err.message.includes('offline')) {
+        setError('Cannot create account while offline. Please check your internet connection and try again.');
+      } else {
+        setError('Failed to create an account. ' + (err.message || ''));
+      }
     } finally {
       setLoading(false);
     }
