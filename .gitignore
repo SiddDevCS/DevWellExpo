@@ -40,3 +40,4 @@ app-example
 
 .env
 src/config/firebase.js
+src/config/firebase.js.map
