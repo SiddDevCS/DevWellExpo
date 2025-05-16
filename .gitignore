@@ -41,3 +41,9 @@ app-example
 .env
 src/config/firebase.js
 src/config/firebase.js.map
+
+# Firebase
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

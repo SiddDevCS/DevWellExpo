@@ -1,7 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import Logo from '../components/Logo';
@@ -13,8 +14,9 @@ const LoginScreen = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [githubLoading, setGithubLoading] = useState(false);
   
-  const { login } = useAuth();
+  const { login, signInWithGitHub } = useAuth();
   const navigation = useNavigation();
   
   const handleLogin = async () => {
@@ -37,6 +39,29 @@ const LoginScreen = () => {
       setError('Failed to log in. Please check your credentials.');
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const handleGitHubLogin = async () => {
+    try {
+      setError('');
+      setGithubLoading(true);
+      console.log('LOGIN: Starting GitHub login process');
+      await signInWithGitHub();
+      console.log('LOGIN: GitHub login successful');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Navigation is handled by App.js based on auth state
+    } catch (err) {
+      console.error('LOGIN ERROR: GitHub login error:', err);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      if (err.message.includes('cancelled')) {
+        // Don't show error for user cancellation
+        console.log('LOGIN: GitHub login cancelled by user');
+      } else {
+        setError('Failed to log in with GitHub. Please try again.');
+      }
+    } finally {
+      setGithubLoading(false);
     }
   };
   
@@ -114,6 +139,28 @@ const LoginScreen = () => {
           loading={loading}
           style={styles.button}
         />
+        
+        <View style={styles.dividerContainer}>
+          <View style={styles.divider} />
+          <Text style={styles.dividerText}>OR</Text>
+          <View style={styles.divider} />
+        </View>
+        
+        <TouchableOpacity 
+          style={[styles.githubButton, githubLoading && styles.githubButtonLoading]}
+          onPress={handleGitHubLogin}
+          disabled={githubLoading}
+          activeOpacity={0.8}
+        >
+          {githubLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <View style={styles.githubButtonContent}>
+              <Ionicons name="logo-github" size={22} color="#FFFFFF" style={styles.githubIcon} />
+              <Text style={styles.githubButtonText}>Continue with GitHub</Text>
+            </View>
+          )}
+        </TouchableOpacity>
         
         <View style={styles.signupContainer}>
           <Text style={styles.signupText}>Don't have an account?</Text>
@@ -208,6 +255,55 @@ const styles = StyleSheet.create({
   },
   button: {
     marginBottom: 20,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.divider,
+  },
+  dividerText: {
+    ...FONTS.medium,
+    fontSize: SIZES.sm,
+    color: COLORS.textSecondary,
+    marginHorizontal: 10,
+  },
+  githubButton: {
+    backgroundColor: '#24292e', // GitHub's color
+    borderRadius: 100, // Make it fully rounded like the main login button
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#1a1d21', // Slightly darker border
+  },
+  githubButtonLoading: {
+    opacity: 0.7,
+  },
+  githubButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  githubIcon: {
+    marginRight: 12,
+  },
+  githubButtonText: {
+    ...FONTS.semiBold, // Use semibold to match the button style
+    fontSize: SIZES.md,
+    color: COLORS.card,
+    letterSpacing: 0.3, // Add a bit of letter spacing for better legibility
   },
   signupContainer: {
     flexDirection: 'row',

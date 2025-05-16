@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import Card from '../components/Card';
 import ScreenHeader from '../components/ScreenHeader';
 import { COLORS, FONTS, SIZES } from '../constants/theme';
 import { useActivity } from '../contexts/ActivityContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const SettingItem = ({ title, subtitle, icon, rightComponent }) => (
   <View style={styles.settingItem}>
@@ -21,12 +22,43 @@ const SettingItem = ({ title, subtitle, icon, rightComponent }) => (
 
 const SettingsScreen = () => {
   const { resetActivity, isPedometerAvailable } = useActivity();
+  const { logout, currentUser } = useAuth();
   
   // Settings state
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [breakRemindersEnabled, setBreakRemindersEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
   const [autoStartBreaks, setAutoStartBreaks] = useState(false);
+
+  // Handle sign out
+  const handleSignOut = async () => {
+    console.log('SETTINGS: User requested to sign out');
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => console.log('SETTINGS: Sign out cancelled')
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            console.log('SETTINGS: Signing out user');
+            try {
+              await logout();
+              console.log('SETTINGS: User signed out successfully');
+            } catch (error) {
+              console.error('SETTINGS ERROR: Failed to sign out:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
   
   return (
     <View style={styles.container}>
@@ -130,6 +162,18 @@ const SettingsScreen = () => {
         {/* Account section */}
         <Text style={styles.sectionTitle}>Account</Text>
         <Card>
+          {currentUser && (
+            <>
+              <SettingItem
+                title="Account Email"
+                subtitle={currentUser.email}
+                icon="person-outline"
+                rightComponent={null}
+              />
+              <View style={styles.divider} />
+            </>
+          )}
+          
           <TouchableOpacity 
             style={styles.resetButton}
             onPress={resetActivity}
@@ -137,6 +181,19 @@ const SettingsScreen = () => {
           >
             <Text style={styles.resetText}>Reset Activity Data</Text>
           </TouchableOpacity>
+          
+          {currentUser && (
+            <>
+              <View style={styles.divider} />
+              <TouchableOpacity 
+                style={styles.signOutButton}
+                onPress={handleSignOut}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.signOutText}>Sign Out</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </Card>
         
         {/* About section */}
@@ -221,6 +278,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resetText: {
+    ...FONTS.medium,
+    fontSize: SIZES.md,
+    color: COLORS.error,
+  },
+  signOutButton: {
+    paddingVertical: SIZES.padding.sm,
+    alignItems: 'center',
+  },
+  signOutText: {
     ...FONTS.medium,
     fontSize: SIZES.md,
     color: COLORS.error,

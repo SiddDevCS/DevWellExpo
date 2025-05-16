@@ -14,6 +14,7 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "scheme": "devwell",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.devwell.app"
@@ -29,7 +30,20 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-splash-screen"
-    ]
+      "expo-splash-screen",
+      [
+        "expo-auth-session",
+        {
+          "scheme": "devwell"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "devwell-4dabe"
+      }
+    },
+    "owner": "devwell",
+    "githubUrl": "https://github.com/devwell/devwell-app"
   }
 }

@@ -1,8 +1,14 @@
-import { createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateProfile } from 'firebase/auth';
+import * as AuthSession from 'expo-auth-session';
+import { makeRedirectUri } from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
+import { createUserWithEmailAndPassword, GithubAuthProvider, onAuthStateChanged, sendPasswordResetEmail, signInWithCredential, signInWithEmailAndPassword, signOut, updateProfile } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import { auth, db, handleFirebaseNetworkError } from '../config/firebase';
+
+// Initialize web browser for OAuth flow
+WebBrowser.maybeCompleteAuthSession();
 
 // Create context
 const AuthContext = createContext();
@@ -176,6 +182,123 @@ export const AuthProvider = ({ children }) => {
     }
   };
   
+  // Create GitHub OAuth config
+  const githubClientId = 'Ov23lioy0CwWnQMdWfSG';
+  const githubClientSecret = '16627826cc8cc37278c0b410c971ab96e6154f11';
+  const redirectUri = makeRedirectUri({
+    scheme: 'devwell',
+    path: 'oauth2redirect/github',
+  });
+
+  // Create discovery for GitHub OAuth
+  const discovery = {
+    authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+    tokenEndpoint: 'https://github.com/login/oauth/access_token',
+    revocationEndpoint: 'https://github.com/settings/connections/applications/' + githubClientId,
+  };
+
+  // GitHub OAuth sign in
+  const signInWithGitHub = async () => {
+    console.log('AUTH: Starting GitHub OAuth sign-in process');
+    try {
+      setLoading(true);
+      
+      // Create auth request
+      const request = new AuthSession.AuthRequest({
+        clientId: githubClientId,
+        scopes: ['user', 'user:email'],
+        redirectUri,
+      });
+
+      console.log('AUTH: GitHub OAuth redirect URI:', redirectUri);
+      
+      // Prompt for authentication
+      console.log('AUTH: Launching GitHub OAuth browser');
+      const result = await request.promptAsync(discovery, {
+        useProxy: true
+      });
+      
+      console.log('AUTH: GitHub OAuth result type:', result.type);
+      
+      if (result.type === 'success') {
+        console.log('AUTH: GitHub OAuth authorization successful, exchanging code for token');
+        
+        // Get the code from the response
+        const { code } = result.params;
+        
+        // Exchange code for token
+        const tokenResult = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            client_id: githubClientId,
+            client_secret: githubClientSecret,
+            code,
+            redirect_uri: 'https://devwell-4dabe.firebaseapp.com/__/auth/handler'
+          })
+        });
+        
+        const tokenData = await tokenResult.json();
+        
+        if (tokenData.error) {
+          console.error('AUTH ERROR: GitHub token exchange error:', tokenData.error);
+          throw new Error(`GitHub token exchange failed: ${tokenData.error_description}`);
+        }
+        
+        console.log('AUTH: Successfully obtained GitHub access token');
+        
+        // Create GitHub credential
+        console.log('AUTH: Creating Firebase credential with GitHub token');
+        const credential = GithubAuthProvider.credential(tokenData.access_token);
+        
+        // Sign in with credential
+        const userCredential = await signInWithCredential(auth, credential);
+        console.log(`AUTH: GitHub user signed in successfully, UID: ${userCredential.user.uid}`);
+        
+        // Check if user document exists
+        const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+        
+        if (!userDoc.exists()) {
+          // Create user document for new GitHub users
+          console.log(`AUTH: Creating user document for new GitHub user: ${userCredential.user.uid}`);
+          await setDoc(doc(db, 'users', userCredential.user.uid), {
+            displayName: userCredential.user.displayName || 'GitHub User',
+            email: userCredential.user.email,
+            profilePhotoUrl: userCredential.user.photoURL,
+            provider: 'github',
+            createdAt: new Date(),
+            onboardingCompleted: false,
+            wellnessData: {
+              stepCount: 0,
+              sedentaryTime: 0,
+              focusTime: 0,
+              stressLevel: 0,
+              wellnessScore: 75
+            }
+          });
+        }
+        
+        return userCredential.user;
+      } else if (result.type === 'cancel') {
+        console.log('AUTH: GitHub OAuth was cancelled by the user');
+        throw new Error('GitHub sign in was cancelled');
+      } else {
+        console.log('AUTH: GitHub OAuth failed:', result);
+        throw new Error('GitHub sign in failed');
+      }
+    } catch (error) {
+      console.error('AUTH ERROR: GitHub sign in error:', error);
+      console.log(`AUTH: Error code: ${error.code}, message: ${error.message}`);
+      Alert.alert('GitHub Sign In Error', error.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   // Logout function
   const logout = async () => {
     console.log('AUTH: Attempting to sign out user');
@@ -296,7 +419,8 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     resetPassword,
-    completeOnboarding
+    completeOnboarding,
+    signInWithGitHub
   };
   
   console.log(`AUTH: Rendering AuthProvider. User: ${currentUser ? 'signed in' : 'signed out'}, Onboarding: ${onboardingCompleted}, Loading: ${loading}`);
